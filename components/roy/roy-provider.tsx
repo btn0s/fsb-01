@@ -21,23 +21,48 @@ interface WorkflowRun {
   startedAt: number;
 }
 
+interface ChatThread {
+  id: string;
+  title?: string;
+  createdAt: number;
+  workflows: WorkflowRun[];
+}
+
 interface RoyContextValue {
+  // UI state
   uiState: RoyUIState;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  isAppOpen: boolean;
+  setIsAppOpen: (open: boolean) => void;
+
+  // Threads
+  threads: ChatThread[];
+  activeThreadId: string | null;
+  activeThread: ChatThread | null;
+  setActiveThreadId: (id: string | null) => void;
+  createThread: () => string;
+  deleteThread: (id: string) => void;
+
+  // Active thread chat
   messages: UIMessage[];
   sendMessage: (text: string) => void;
   isProcessing: boolean;
   error: Error | null;
-  workflows: WorkflowRun[];
+
+  // Workflows (across all threads)
+  allWorkflows: WorkflowRun[];
   hasActiveWorkflows: boolean;
+
+  // Actions
   toggle: () => void;
+  toggleApp: () => void;
   dismiss: () => void;
-  clear: () => void;
+  startNewChat: () => void;
 }
 
 const RoyContext = createContext<RoyContextValue | null>(null);
-const STORAGE_KEY = "roy-workflows";
+const THREADS_STORAGE_KEY = "roy-threads";
 
 export function useRoy() {
   const context = useContext(RoyContext);
@@ -58,7 +83,6 @@ function parseWorkflowOutput(
   try {
     if (typeof output === "string") {
       const parsed = JSON.parse(output);
-      // Structure: { type: "tool-result", output: { type: "text", value: "{workflowId, type}" } }
       if (parsed?.output?.value) {
         return JSON.parse(parsed.output.value);
       }
@@ -80,19 +104,39 @@ function parseWorkflowOutput(
   return null;
 }
 
+function generateThreadId() {
+  return `thread_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function generateTitle(messages: UIMessage[]): string {
+  const firstUserMessage = messages.find((m) => m.role === "user");
+  if (firstUserMessage?.parts) {
+    const textPart = firstUserMessage.parts.find((p) => p.type === "text");
+    if (textPart && "text" in textPart) {
+      const text = textPart.text;
+      return text.length > 40 ? text.slice(0, 40) + "..." : text;
+    }
+  }
+  return "New conversation";
+}
+
 export function RoyProvider({ children }: RoyProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [workflows, setWorkflows] = useState<WorkflowRun[]>([]);
+  const [isAppOpen, setIsAppOpen] = useState(false);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
+  // useChat with thread ID for proper isolation
   const {
     messages,
-    sendMessage: sendChatMessage,
+    sendMessage: chatSendMessage,
     status,
     error: chatError,
     setMessages,
   } = useChat({
     api: "/api/chat",
+    id: activeThreadId || undefined,
   });
 
   const isProcessing = status === "submitted" || status === "streaming";
@@ -103,84 +147,109 @@ export function RoyProvider({ children }: RoyProviderProps) {
     ? "responding"
     : "idle";
 
-  const toggle = useCallback(() => {
-    setIsOpen((prev) => !prev);
-  }, []);
+  const activeThread = threads.find((t) => t.id === activeThreadId) || null;
 
-  useVoiceShortcut(toggle, true);
+  // All workflows across all threads
+  const allWorkflows = threads.flatMap((t) => t.workflows);
+  const hasActiveWorkflows = allWorkflows.some((w) => w.status === "running");
 
-  const sendMessage = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
-      sendChatMessage({ text });
-    },
-    [sendChatMessage]
-  );
-
-  // Load workflows from localStorage on mount
+  // Load threads from localStorage
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(THREADS_STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored) as WorkflowRun[];
-        setWorkflows(parsed);
+        const parsed = JSON.parse(stored) as ChatThread[];
+        setThreads(parsed);
       }
     } catch {
       // Ignore
     }
   }, []);
 
-  // Save workflows to localStorage when they change
+  // Save threads to localStorage
   useEffect(() => {
-    if (workflows.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
+    if (threads.length > 0) {
+      localStorage.setItem(THREADS_STORAGE_KEY, JSON.stringify(threads));
     }
-  }, [workflows]);
+  }, [threads]);
 
-  // Poll for workflow status updates
-  useEffect(() => {
-    const checkStatuses = async () => {
-      const running = workflows.filter((w) => w.status === "running");
-      if (running.length === 0) return;
+  // Create a new thread
+  const createThread = useCallback(() => {
+    const newThread: ChatThread = {
+      id: generateThreadId(),
+      createdAt: Date.now(),
+      workflows: [],
+    };
+    setThreads((prev) => [newThread, ...prev]);
+    setActiveThreadId(newThread.id);
+    setMessages([]);
+    return newThread.id;
+  }, [setMessages]);
 
-      for (const wf of running) {
-        try {
-          const res = await fetch(`/api/workflow/${wf.id}/status`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.status === "completed" || data.status === "failed") {
-              setWorkflows((prev) =>
-                prev.map((w) =>
-                  w.id === wf.id
-                    ? {
-                        ...w,
-                        status:
-                          data.status === "completed" ? "completed" : "error",
-                      }
-                    : w
-                )
-              );
-            }
-          }
-        } catch {
-          // Ignore errors
-        }
+  // Delete a thread
+  const deleteThread = useCallback(
+    (id: string) => {
+      setThreads((prev) => prev.filter((t) => t.id !== id));
+      if (activeThreadId === id) {
+        setActiveThreadId(null);
+        setMessages([]);
       }
-    };
+      // Clean up localStorage for this chat
+      localStorage.removeItem(`ai-chat-${id}`);
+    },
+    [activeThreadId, setMessages]
+  );
 
-    // Check immediately on mount
-    checkStatuses();
+  // Start new chat (creates thread and opens prompt)
+  const startNewChat = useCallback(() => {
+    createThread();
+    setIsOpen(true);
+  }, [createThread]);
 
-    // Poll every 5 seconds
-    pollingRef.current = setInterval(checkStatuses, 5000);
+  // Toggle opens prompt - if no active thread, create one
+  const toggle = useCallback(() => {
+    if (!isOpen && !activeThreadId) {
+      createThread();
+    }
+    setIsOpen((prev) => !prev);
+  }, [isOpen, activeThreadId, createThread]);
 
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [workflows]);
+  const toggleApp = useCallback(() => {
+    setIsAppOpen((prev) => !prev);
+  }, []);
 
-  // Extract sub-workflow runs from tool results
+  useVoiceShortcut(startNewChat, true);
+
+  const sendMessage = useCallback(
+    (text: string) => {
+      if (!text.trim()) return;
+      // Create thread if needed
+      if (!activeThreadId) {
+        createThread();
+      }
+      // Use the sendMessage function from useChat
+      chatSendMessage({ text });
+    },
+    [activeThreadId, createThread, chatSendMessage]
+  );
+
+  // Update thread title when first message is sent
   useEffect(() => {
+    if (activeThreadId && messages.length > 0) {
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === activeThreadId && !t.title
+            ? { ...t, title: generateTitle(messages) }
+            : t
+        )
+      );
+    }
+  }, [activeThreadId, messages]);
+
+  // Extract workflows from messages and link to active thread
+  useEffect(() => {
+    if (!activeThreadId) return;
+
     const foundWorkflows: WorkflowRun[] = [];
 
     for (const message of messages) {
@@ -214,43 +283,89 @@ export function RoyProvider({ children }: RoyProviderProps) {
     }
 
     if (foundWorkflows.length > 0) {
-      setWorkflows((prev) => {
-        const updated = [...prev];
-        for (const newWf of foundWorkflows) {
-          if (!updated.find((w) => w.id === newWf.id)) {
-            updated.push(newWf);
+      setThreads((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeThreadId) return t;
+          const updated = [...t.workflows];
+          for (const newWf of foundWorkflows) {
+            if (!updated.find((w) => w.id === newWf.id)) {
+              updated.push(newWf);
+            }
           }
-        }
-        return updated;
-      });
+          return { ...t, workflows: updated };
+        })
+      );
     }
-  }, [messages]);
+  }, [messages, activeThreadId]);
 
-  const hasActiveWorkflows = workflows.some((w) => w.status === "running");
+  // Poll for workflow status updates across all threads
+  useEffect(() => {
+    const checkStatuses = async () => {
+      const running = allWorkflows.filter((w) => w.status === "running");
+      if (running.length === 0) return;
+
+      for (const wf of running) {
+        try {
+          const res = await fetch(`/api/workflow/${wf.id}/status`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === "completed" || data.status === "failed") {
+              setThreads((prev) =>
+                prev.map((t) => ({
+                  ...t,
+                  workflows: t.workflows.map((w) =>
+                    w.id === wf.id
+                      ? {
+                          ...w,
+                          status:
+                            data.status === "completed" ? "completed" : "error",
+                        }
+                      : w
+                  ),
+                }))
+              );
+            }
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
+    };
+
+    checkStatuses();
+    pollingRef.current = setInterval(checkStatuses, 5000);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [allWorkflows]);
 
   const dismiss = useCallback(() => {
     setIsOpen(false);
   }, []);
 
-  const clear = useCallback(() => {
-    setMessages([]);
-    setWorkflows([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }, [setMessages]);
-
   const value: RoyContextValue = {
     uiState,
     isOpen,
     setIsOpen,
+    isAppOpen,
+    setIsAppOpen,
+    threads,
+    activeThreadId,
+    activeThread,
+    setActiveThreadId,
+    createThread,
+    deleteThread,
     messages,
     sendMessage,
     isProcessing,
     error: chatError,
-    workflows,
+    allWorkflows,
     hasActiveWorkflows,
     toggle,
+    toggleApp,
     dismiss,
-    clear,
+    startNewChat,
   };
 
   return <RoyContext.Provider value={value}>{children}</RoyContext.Provider>;

@@ -1,7 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { RoyProvider, RoyHUD, useRoy, RoyTaskWidget } from "@/components/roy";
+import {
+  RoyProvider,
+  RoyHUD,
+  useRoy,
+  RoyTaskWidget,
+  RoyApp,
+} from "@/components/roy";
 import { MenuBar, Dock } from "@/components/desktop";
 import { cn } from "@/lib/utils";
 
@@ -9,10 +15,10 @@ function HintMessage() {
   const { isOpen } = useRoy();
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+    <div className="fixed bottom-[72px] left-0 right-0 flex justify-center pointer-events-none z-10">
       <p
         className={cn(
-          "text-sm px-4 py-2 rounded-lg bg-background/90 backdrop-blur-sm text-foreground shadow-lg transition-all duration-300",
+          "text-xs px-3 py-1.5 rounded-lg bg-background/90 backdrop-blur-sm text-foreground shadow-lg transition-all duration-300",
           isOpen && "opacity-0 blur-sm scale-95"
         )}
       >
@@ -47,13 +53,16 @@ export default function Page() {
         {/* Hint text - fades out when Roy is open */}
         <HintMessage />
 
-        {/* Task widget - slides in top-left when activity is happening */}
+        {/* Task widget - floating indicator */}
         <RoyTaskWidget />
+
+        {/* Roy App - desktop app window */}
+        <RoyApp />
 
         {/* Dock */}
         <Dock />
 
-        {/* Roy HUD */}
+        {/* Roy HUD - ⌘K shortcut */}
         <RoyHUD />
       </main>
     </RoyProvider>

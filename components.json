@@ -20,7 +20,5 @@
   },
   "menuColor": "default",
   "menuAccent": "bold",
-  "registries": {
-    "@ai-elements": "https://registry.ai-sdk.dev/registry.json"
-  }
+  "registries": {}
 }
