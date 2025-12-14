@@ -3,7 +3,7 @@ name: Roy Multi-Agent with V0 and GitHub
 overview: "Hybrid architecture: Roy chat handles conversation + triggers Vercel Workflows for long-running tasks (V0 prototypes, GitHub PRs). Conversational first, async when needed."
 todos:
   - id: deps
-    content: Add v0-sdk, @v0-sdk/ai-tools, @octokit/rest, and @vercel/workflow dependencies
+    content: Add v0-sdk, @v0-sdk/ai-tools, @octokit/rest, and workflow dependencies
     status: in_progress
   - id: env
     content: Set up environment variables (V0_API_KEY, GITHUB_TOKEN, DEMO_REPO_*)
@@ -93,7 +93,7 @@ flowchart LR
 ## Dependencies
 
 ```bash
-pnpm add v0-sdk @v0-sdk/ai-tools @octokit/rest @vercel/workflow
+pnpm add v0-sdk @v0-sdk/ai-tools @octokit/rest workflow
 ```
 
 ## Environment Variables
