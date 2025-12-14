@@ -1,5 +1,5 @@
 export { RoyProvider, useRoy } from "./roy-provider";
 export { RoyHUD } from "./roy-hud";
 export { RoyPrompt } from "./roy-prompt";
-export { RoyWorkingBadge } from "./roy-working-badge";
-
+export { RoyTaskWidget } from "./roy-task-widget";
+export { RoyLogo } from "./roy-logo";

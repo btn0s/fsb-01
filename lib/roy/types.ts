@@ -3,20 +3,6 @@ import type { UIMessage } from "ai";
 // Roy-specific message type with tool inference
 export type RoyMessage = UIMessage;
 
-// Background task tracking
-export type TaskStatus = "pending" | "running" | "complete" | "error";
-
-export interface BackgroundTask {
-  id: string;
-  name: string;
-  description: string;
-  status: TaskStatus;
-  progress?: string;
-  result?: unknown;
-  startedAt: number;
-  completedAt?: number;
-}
-
 // Content types for the knowledge base
 export type ContentType =
   | "okr"

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { RoyProvider, RoyHUD, useRoy } from "@/components/roy";
+import { RoyProvider, RoyHUD, useRoy, RoyTaskWidget } from "@/components/roy";
 import { MenuBar, Dock } from "@/components/desktop";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +46,9 @@ export default function Page() {
 
         {/* Hint text - fades out when Roy is open */}
         <HintMessage />
+
+        {/* Task widget - slides in top-left when activity is happening */}
+        <RoyTaskWidget />
 
         {/* Dock */}
         <Dock />

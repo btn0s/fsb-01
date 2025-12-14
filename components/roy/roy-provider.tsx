@@ -8,35 +8,36 @@ import {
   useCallback,
   useEffect,
   useState,
+  useRef,
 } from "react";
 import { useVoiceShortcut } from "@/hooks/use-voice-shortcut";
-import type { BackgroundTask } from "@/lib/roy/types";
 
 type RoyUIState = "idle" | "processing" | "responding";
 
+interface WorkflowRun {
+  id: string;
+  type: "design" | "engineering";
+  status: "running" | "completed" | "error";
+  startedAt: number;
+}
+
 interface RoyContextValue {
-  // UI State
   uiState: RoyUIState;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
-
-  // Chat
   messages: UIMessage[];
   sendMessage: (text: string) => void;
   isProcessing: boolean;
   error: Error | null;
-
-  // Background tasks
-  backgroundTasks: BackgroundTask[];
-  hasActiveTasks: boolean;
-
-  // Actions
+  workflows: WorkflowRun[];
+  hasActiveWorkflows: boolean;
   toggle: () => void;
   dismiss: () => void;
   clear: () => void;
 }
 
 const RoyContext = createContext<RoyContextValue | null>(null);
+const STORAGE_KEY = "roy-workflows";
 
 export function useRoy() {
   const context = useContext(RoyContext);
@@ -50,11 +51,40 @@ interface RoyProviderProps {
   children: React.ReactNode;
 }
 
+// Helper to parse nested stringified output
+function parseWorkflowOutput(
+  output: unknown
+): { workflowId?: string; type?: string } | null {
+  try {
+    if (typeof output === "string") {
+      const parsed = JSON.parse(output);
+      // Structure: { type: "tool-result", output: { type: "text", value: "{workflowId, type}" } }
+      if (parsed?.output?.value) {
+        return JSON.parse(parsed.output.value);
+      }
+      return parsed;
+    }
+    if (typeof output === "object" && output !== null) {
+      const obj = output as Record<string, unknown>;
+      if (obj.workflowId) return obj as { workflowId: string; type?: string };
+      if (obj.output && typeof obj.output === "object") {
+        const inner = obj.output as Record<string, unknown>;
+        if (inner.value && typeof inner.value === "string") {
+          return JSON.parse(inner.value);
+        }
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+}
+
 export function RoyProvider({ children }: RoyProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowRun[]>([]);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Chat
   const {
     messages,
     sendMessage: sendChatMessage,
@@ -67,22 +97,18 @@ export function RoyProvider({ children }: RoyProviderProps) {
 
   const isProcessing = status === "submitted" || status === "streaming";
 
-  // Compute UI state
   const uiState: RoyUIState = isProcessing
     ? "processing"
     : messages.length > 0 && status === "ready"
     ? "responding"
     : "idle";
 
-  // Toggle Roy (keyboard shortcut)
   const toggle = useCallback(() => {
     setIsOpen((prev) => !prev);
   }, []);
 
-  // Keyboard shortcut
   useVoiceShortcut(toggle, true);
 
-  // Send message
   const sendMessage = useCallback(
     (text: string) => {
       if (!text.trim()) return;
@@ -91,53 +117,125 @@ export function RoyProvider({ children }: RoyProviderProps) {
     [sendChatMessage]
   );
 
-  // Track background tasks from tool calls
+  // Load workflows from localStorage on mount
   useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage?.parts) return;
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as WorkflowRun[];
+        setWorkflows(parsed);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
 
-    const toolParts = lastMessage.parts.filter((p) =>
-      p.type.startsWith("tool-")
-    );
+  // Save workflows to localStorage when they change
+  useEffect(() => {
+    if (workflows.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
+    }
+  }, [workflows]);
 
-    const tasks: BackgroundTask[] = toolParts.map((part) => {
-      const toolPart = part as {
-        type: string;
-        state: string;
-        toolCallId?: string;
-      };
-      const toolName = toolPart.type.replace("tool-", "");
+  // Poll for workflow status updates
+  useEffect(() => {
+    const checkStatuses = async () => {
+      const running = workflows.filter((w) => w.status === "running");
+      if (running.length === 0) return;
 
-      return {
-        id: toolPart.toolCallId || toolName,
-        name: toolName,
-        description: `Running ${toolName}...`,
-        status:
-          toolPart.state === "output-available"
-            ? "complete"
-            : toolPart.state === "output-error"
-            ? "error"
-            : "running",
-        startedAt: Date.now(),
-      };
-    });
+      for (const wf of running) {
+        try {
+          const res = await fetch(`/api/workflow/${wf.id}/status`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === "completed" || data.status === "failed") {
+              setWorkflows((prev) =>
+                prev.map((w) =>
+                  w.id === wf.id
+                    ? {
+                        ...w,
+                        status:
+                          data.status === "completed" ? "completed" : "error",
+                      }
+                    : w
+                )
+              );
+            }
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
+    };
 
-    if (tasks.length > 0) {
-      setBackgroundTasks(tasks);
+    // Check immediately on mount
+    checkStatuses();
+
+    // Poll every 5 seconds
+    pollingRef.current = setInterval(checkStatuses, 5000);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [workflows]);
+
+  // Extract sub-workflow runs from tool results
+  useEffect(() => {
+    const foundWorkflows: WorkflowRun[] = [];
+
+    for (const message of messages) {
+      if (!message.parts) continue;
+
+      for (const part of message.parts) {
+        if (part.type === "tool-workflow") {
+          const toolPart = part as {
+            toolCallId: string;
+            state: string;
+            output?: unknown;
+          };
+
+          const parsed = parseWorkflowOutput(toolPart.output);
+
+          if (parsed?.workflowId) {
+            const existing = foundWorkflows.find(
+              (w) => w.id === parsed.workflowId
+            );
+            if (!existing) {
+              foundWorkflows.push({
+                id: parsed.workflowId,
+                type: (parsed.type as "design" | "engineering") || "design",
+                status: "running",
+                startedAt: Date.now(),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (foundWorkflows.length > 0) {
+      setWorkflows((prev) => {
+        const updated = [...prev];
+        for (const newWf of foundWorkflows) {
+          if (!updated.find((w) => w.id === newWf.id)) {
+            updated.push(newWf);
+          }
+        }
+        return updated;
+      });
     }
   }, [messages]);
 
-  const hasActiveTasks = backgroundTasks.some((t) => t.status === "running");
+  const hasActiveWorkflows = workflows.some((w) => w.status === "running");
 
-  // Dismiss Roy
   const dismiss = useCallback(() => {
     setIsOpen(false);
   }, []);
 
-  // Clear conversation
   const clear = useCallback(() => {
     setMessages([]);
-    setBackgroundTasks([]);
+    setWorkflows([]);
+    localStorage.removeItem(STORAGE_KEY);
   }, [setMessages]);
 
   const value: RoyContextValue = {
@@ -148,8 +246,8 @@ export function RoyProvider({ children }: RoyProviderProps) {
     sendMessage,
     isProcessing,
     error: chatError,
-    backgroundTasks,
-    hasActiveTasks,
+    workflows,
+    hasActiveWorkflows,
     toggle,
     dismiss,
     clear,
