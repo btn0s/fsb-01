@@ -1,6 +1,29 @@
 import { tool } from "ai";
 import { z } from "zod";
+// #region agent log
+import { start } from "workflow/api";
+// #endregion
 import { searchContent, getContentByType, loadAllContent } from "./content";
+// Note: Workflows are imported in app/api/chat/route.ts to ensure plugin processes them
+// We'll import them dynamically or pass them as parameters
+
+// #region agent log
+const LOG_ENDPOINT = 'http://127.0.0.1:7243/ingest/cf8f535a-4cc4-4cfa-9d60-0b32784335f0';
+const log = (location: string, message: string, data: any, hypothesisId: string) => {
+  fetch(LOG_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+      sessionId: 'debug-session',
+      hypothesisId
+    })
+  }).catch(() => {});
+};
+// #endregion
 
 /**
  * Search across all context files (OKRs, PRDs, transcripts, etc.)
@@ -117,66 +140,48 @@ export const webSearch = tool({
   },
 });
 
+
+
 /**
- * Generate prototypes using V0
- * This is a HITL tool - requires confirmation before execution
+ * === WORKFLOW TRIGGERS (async, run in background) ===
+ * 
+ * NOTE: Workflow trigger tools are now defined in app/api/chat/route.ts
+ * where the workflow functions are imported. This ensures the workflow
+ * plugin processes them correctly.
  */
-export const generatePrototype = tool({
-  description:
-    "Generate UI prototypes using V0. Creates 2-3 visual variants based on a description. Use this when the user wants to see design options.",
-  inputSchema: z.object({
-    description: z
-      .string()
-      .describe("What to prototype - be specific about the UI/UX requirements"),
-    context: z
-      .string()
-      .optional()
-      .describe("Additional context from OKRs, PRDs, or discussions"),
-    variants: z
-      .number()
-      .default(3)
-      .describe("Number of variants to generate (default: 3)"),
-  }),
-  // No execute function = requires human confirmation
+
+/**
+ * Check the status of a running workflow
+ */
+export const checkWorkflowStatus = tool({
+  description: "Check the status of a running workflow",
+  inputSchema: z.object({ workflowId: z.string() }),
+  execute: async ({ workflowId }) => {
+    const baseUrl =
+      process.env.VERCEL_URL || process.env.NEXT_PUBLIC_VERCEL_URL || "";
+    const protocol = baseUrl.startsWith("http") ? "" : "https://";
+    const url = `${protocol}${baseUrl}/api/workflow/${workflowId}/status`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      return {
+        error: `Failed to fetch workflow status: ${res.statusText}`,
+      };
+    }
+    return res.json();
+  },
 });
 
 /**
- * Create a draft PR
- * This is a HITL tool - requires confirmation before execution
- */
-export const createDraftPR = tool({
-  description:
-    "Create a draft pull request with generated code. Use this when the user has selected an approach and wants to move to implementation.",
-  inputSchema: z.object({
-    title: z.string().describe("PR title"),
-    description: z.string().describe("PR description summarizing the changes"),
-    files: z
-      .array(
-        z.object({
-          path: z.string(),
-          content: z.string(),
-        })
-      )
-      .optional()
-      .describe("Files to include in the PR"),
-    reviewers: z
-      .array(z.string())
-      .optional()
-      .describe("GitHub usernames to request review from"),
-  }),
-  // No execute function = requires human confirmation
-});
-
-/**
- * All Roy tools
+ * All Roy tools (excluding workflow triggers - those are created in app/api/chat/route.ts)
  */
 export const royTools = {
+  // === INLINE TOOLS (fast, run in request) ===
   searchContext,
   getTaskList,
   getOKRs,
   webSearch,
-  generatePrototype,
-  createDraftPR,
+  // === WORKFLOW STATUS CHECK ===
+  checkWorkflowStatus,
 };
 
 /**
