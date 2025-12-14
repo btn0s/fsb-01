@@ -1,12 +1,15 @@
 {
   "mcpServers": {
+    "granola-mcp": {
+      "command": "python3.12",
+      "args": ["-m", "granola_mcp.mcp"],
+      "env": {
+        "GRANOLA_CACHE_PATH": "/Users/btn0s/Library/Application Support/Granola/cache-v3.json"
+      }
+    },
     "ai-elements": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://registry.ai-sdk.dev/api/mcp"]
-    },
-    "shadcn": {
-      "command": "npx",
-      "args": ["shadcn@latest", "mcp"]
     }
   }
 }
