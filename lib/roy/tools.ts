@@ -8,7 +8,7 @@ import { searchContent, getContentByType, loadAllContent } from "./content";
 export const searchContext = tool({
   description:
     "Search the user's OKRs, PRDs, meeting transcripts, decisions, and task lists for relevant context. Use this to ground your responses in what the user and their team already know.",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z
       .string()
       .describe("The search query - use keywords relevant to the topic"),
@@ -42,7 +42,7 @@ export const searchContext = tool({
  */
 export const getTaskList = tool({
   description: "Get the current sprint tasks, priorities, and blockers",
-  parameters: z.object({}),
+  inputSchema: z.object({}).describe("No input parameters required"),
   execute: async () => {
     const tasks = getContentByType("task");
 
@@ -68,7 +68,7 @@ export const getTaskList = tool({
  */
 export const getOKRs = tool({
   description: "Get the team's current OKRs and objectives",
-  parameters: z.object({}),
+  inputSchema: z.object({}).describe("No input parameters required"),
   execute: async () => {
     const okrs = getContentByType("okr");
 
@@ -96,7 +96,7 @@ export const getOKRs = tool({
 export const webSearch = tool({
   description:
     "Search the web for current information, market data, news, or trends. Use this for information that wouldn't be in the user's local context.",
-  parameters: z.object({
+  inputSchema: z.object({
     query: z.string().describe("The search query"),
   }),
   execute: async ({ query }) => {
@@ -124,7 +124,7 @@ export const webSearch = tool({
 export const generatePrototype = tool({
   description:
     "Generate UI prototypes using V0. Creates 2-3 visual variants based on a description. Use this when the user wants to see design options.",
-  parameters: z.object({
+  inputSchema: z.object({
     description: z
       .string()
       .describe("What to prototype - be specific about the UI/UX requirements"),
@@ -147,7 +147,7 @@ export const generatePrototype = tool({
 export const createDraftPR = tool({
   description:
     "Create a draft pull request with generated code. Use this when the user has selected an approach and wants to move to implementation.",
-  parameters: z.object({
+  inputSchema: z.object({
     title: z.string().describe("PR title"),
     description: z.string().describe("PR description summarizing the changes"),
     files: z
@@ -186,3 +186,4 @@ export const toolsRequiringConfirmation = [
   "generatePrototype",
   "createDraftPR",
 ];
+

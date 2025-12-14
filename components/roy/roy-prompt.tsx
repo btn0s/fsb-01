@@ -1,235 +1,196 @@
 "use client";
 
 import { useRoy } from "./roy-provider";
-import {
-  Command,
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ai-elements/loader";
-import { Shimmer } from "@/components/ai-elements/shimmer";
-import { MicIcon, MicOffIcon, SendIcon } from "lucide-react";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { SendIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useCallback, useEffect } from "react";
-
-const EXAMPLE_PROMPTS = [
-  {
-    label: "Check priorities",
-    prompt: "What should I prioritize this week based on our OKRs?",
-  },
-  {
-    label: "Get meeting context",
-    prompt: "What did we decide about onboarding in the last meeting?",
-  },
-  {
-    label: "Review tasks",
-    prompt: "What are the current blockers on my sprint?",
-  },
-  {
-    label: "Generate prototypes",
-    prompt: "Create some prototype variants for the new onboarding flow",
-  },
-];
+import { useState, useCallback, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "motion/react";
 
 /**
- * Spotlight-style command prompt using CommandDialog
+ * Self-contained floating prompt with integrated chat
+ * - Bottom: Input area
+ * - Above: Chat messages (grows upward)
  */
 export function RoyPrompt() {
-  const {
-    isOpen,
-    setIsOpen,
-    isListening,
-    transcript,
-    interimTranscript,
-    isProcessing,
-    startListening,
-    stopListening,
-    sendMessage,
-    error,
-  } = useRoy();
-
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-
-  // Show voice errors briefly then clear
-  useEffect(() => {
-    if (
-      error?.message?.includes("voice") ||
-      error?.message?.includes("Voice") ||
-      error?.message?.includes("Network") ||
-      error?.message?.includes("Microphone")
-    ) {
-      setVoiceError(error.message);
-      const timer = setTimeout(() => setVoiceError(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+  const { isOpen, setIsOpen, isProcessing, sendMessage, messages } = useRoy();
 
   const [inputValue, setInputValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Sync transcript to input when listening stops
+  // Focus input when opening
   useEffect(() => {
-    if (!isListening && transcript) {
-      setInputValue(transcript);
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
     }
-  }, [isListening, transcript]);
+  }, [isOpen]);
 
-  const handleSubmit = useCallback(
-    (value: string) => {
-      const text = value.trim();
-      if (text) {
-        sendMessage(text);
-        setInputValue("");
-        setIsOpen(false);
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Close on escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        handleClose();
       }
-    },
-    [sendMessage, setIsOpen]
-  );
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
 
-  const handleSelect = useCallback(
-    (prompt: string) => {
-      handleSubmit(prompt);
-    },
-    [handleSubmit]
-  );
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+    setInputValue("");
+  }, [setIsOpen]);
 
-  const toggleVoice = useCallback(() => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
+  const handleSubmit = useCallback(() => {
+    const text = inputValue.trim();
+    if (text) {
+      sendMessage(text);
+      setInputValue("");
+      // Refocus input after sending
+      setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [isListening, startListening, stopListening]);
+  }, [inputValue, sendMessage]);
 
-  const displayText = interimTranscript || transcript;
+  const hasMessages = messages.length > 0;
+
+  // Extract text from message parts
+  const getMessageText = (message: (typeof messages)[0]) => {
+    return message.parts
+      ?.filter((p) => p.type === "text")
+      .map((p) => (p as { type: "text"; text: string }).text)
+      .join("\n\n");
+  };
 
   return (
-    <CommandDialog
-      open={isOpen}
-      onOpenChange={setIsOpen}
-      title="Roy"
-      description="Your AI operating system"
-    >
-      <Command shouldFilter={false}>
-        {/* Voice error banner */}
-        {voiceError && (
-          <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <MicOffIcon className="size-3.5" />
-            <span>{voiceError}</span>
-          </div>
-        )}
-
-        {/* Custom input with voice button */}
-        <div className="flex items-center gap-2 border-b p-3">
-          <Button
-            size="icon-sm"
-            variant={isListening ? "default" : voiceError ? "ghost" : "ghost"}
-            onClick={toggleVoice}
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          transition={{ duration: 0.15 }}
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50"
+        >
+          <div
             className={cn(
-              isListening && "animate-pulse",
-              voiceError && "text-muted-foreground"
+              "flex flex-col",
+              "bg-card/95 backdrop-blur-xl",
+              "rounded-2xl border border-border",
+              "shadow-2xl shadow-black/50",
+              "w-[500px] max-h-[60vh]",
+              "overflow-hidden"
             )}
-            title={voiceError ? "Voice unavailable" : "Toggle voice input"}
           >
-            {voiceError ? (
-              <MicOffIcon className="size-3.5" />
-            ) : (
-              <MicIcon className="size-3.5" />
+            {/* Header - only show when there are messages */}
+            {hasMessages && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border">
+                <div className="size-1.5 rounded-full bg-primary" />
+                <span className="text-xs font-medium text-muted-foreground">
+                  Roy
+                </span>
+              </div>
             )}
-          </Button>
 
-          <div className="flex-1">
-            {isListening ? (
-              <div className="flex items-center gap-2 text-sm">
-                {displayText ? (
-                  <span>{displayText}</span>
-                ) : (
-                  <Shimmer duration={1.5}>Listening...</Shimmer>
+            {/* Messages area - scrollable, grows upward */}
+            {hasMessages && (
+              <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto p-3 space-y-3 max-h-[40vh]"
+              >
+                {messages.map((message) => {
+                  const text = getMessageText(message);
+                  if (!text) return null;
+
+                  const isUser = message.role === "user";
+
+                  return (
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "text-sm",
+                        isUser ? "flex justify-end" : "flex justify-start"
+                      )}
+                    >
+                      {isUser ? (
+                        <div className="max-w-[85%] px-3 py-2 rounded-2xl bg-secondary text-secondary-foreground">
+                          {text}
+                        </div>
+                      ) : (
+                        <div className="max-w-[85%] px-3 py-2 rounded-2xl bg-muted/50 text-foreground prose prose-sm prose-invert prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                          <MessageResponse>{text}</MessageResponse>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Processing indicator */}
+                {isProcessing && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-2xl text-sm text-muted-foreground">
+                      <Loader size={14} />
+                      <span>thinking...</span>
+                    </div>
+                  </div>
                 )}
               </div>
-            ) : (
-              <input
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(inputValue);
-                  }
-                }}
-                placeholder="Ask Roy anything..."
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                autoFocus
-                disabled={isProcessing}
-              />
+            )}
+
+            {/* Input area */}
+            <div className={cn("p-3", hasMessages && "border-t border-border")}>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                  placeholder="Message Roy..."
+                  className={cn(
+                    "flex-1 bg-transparent text-sm text-foreground",
+                    "placeholder:text-muted-foreground outline-none"
+                  )}
+                  disabled={isProcessing}
+                />
+                {inputValue && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={handleSubmit}
+                    className="size-8 text-muted-foreground hover:text-foreground"
+                    disabled={isProcessing}
+                  >
+                    <SendIcon className="size-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Footer hint */}
+            {!hasMessages && (
+              <div className="px-3 pb-2 text-center">
+                <span className="text-[10px] text-muted-foreground/50">
+                  Press Esc to close
+                </span>
+              </div>
             )}
           </div>
-
-          {(inputValue || transcript) && !isListening && (
-            <Button
-              size="icon-sm"
-              onClick={() => handleSubmit(inputValue || transcript)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <Loader size={14} />
-              ) : (
-                <SendIcon className="size-3.5" />
-              )}
-            </Button>
-          )}
-        </div>
-
-        <CommandList>
-          {isProcessing ? (
-            <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-              <Loader size={16} />
-              <Shimmer duration={1.5}>Roy is thinking...</Shimmer>
-            </div>
-          ) : (
-            <>
-              <CommandEmpty>
-                Press Enter to send, or select a suggestion below.
-              </CommandEmpty>
-
-              <CommandGroup heading="Suggestions">
-                {EXAMPLE_PROMPTS.map((item) => (
-                  <CommandItem
-                    key={item.label}
-                    onSelect={() => handleSelect(item.prompt)}
-                  >
-                    <span className="font-medium">{item.label}</span>
-                    <span className="ml-2 text-muted-foreground truncate">
-                      {item.prompt}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </>
-          )}
-        </CommandList>
-
-        {/* Footer hints */}
-        <div className="flex items-center gap-4 border-t px-3 py-2 text-xs text-muted-foreground">
-          <span>
-            <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px]">⌘K</kbd>{" "}
-            to toggle
-          </span>
-          <span>
-            <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px]">↵</kbd>{" "}
-            to send
-          </span>
-          <span>
-            <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
-              Esc
-            </kbd>{" "}
-            to close
-          </span>
-        </div>
-      </Command>
-    </CommandDialog>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

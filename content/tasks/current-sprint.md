@@ -35,3 +35,4 @@
 - Sprint goal: Have testable prototype by Dec 18
 - User testing scheduled for Dec 19-20
 - Holiday break starts Dec 23
+

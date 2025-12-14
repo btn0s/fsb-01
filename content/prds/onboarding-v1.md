@@ -34,3 +34,4 @@ Abandon wizard approach. Consider:
 - Immediate access with contextual prompts
 - Learn preferences from behavior, not questions
 - Optional profile completion over time
+

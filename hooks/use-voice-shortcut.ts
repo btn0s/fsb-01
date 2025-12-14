@@ -24,3 +24,4 @@ export function useVoiceShortcut(
     return () => window.removeEventListener("keydown", handler);
   }, [onActivate, enabled]);
 }
+

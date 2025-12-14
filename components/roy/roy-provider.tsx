@@ -8,32 +8,17 @@ import {
   useCallback,
   useEffect,
   useState,
-  useRef,
 } from "react";
-import { useSpeechToText } from "@/hooks/use-speech-to-text";
-import { useTextToSpeech } from "@/hooks/use-text-to-speech";
 import { useVoiceShortcut } from "@/hooks/use-voice-shortcut";
 import type { BackgroundTask } from "@/lib/roy/types";
 
-type RoyUIState = "idle" | "listening" | "processing" | "responding";
+type RoyUIState = "idle" | "processing" | "responding";
 
 interface RoyContextValue {
   // UI State
   uiState: RoyUIState;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
-
-  // Voice
-  isListening: boolean;
-  transcript: string;
-  interimTranscript: string;
-  startListening: () => void;
-  stopListening: () => void;
-
-  // TTS
-  isSpeaking: boolean;
-  speak: (text: string) => void;
-  stopSpeaking: () => void;
 
   // Chat
   messages: UIMessage[];
@@ -68,21 +53,6 @@ interface RoyProviderProps {
 export function RoyProvider({ children }: RoyProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
-  const lastSpokenMessageId = useRef<string | null>(null);
-
-  // Speech to text
-  const {
-    transcript,
-    interimTranscript,
-    isListening,
-    start: startSTT,
-    stop: stopSTT,
-    clear: clearSTT,
-    error: sttError,
-  } = useSpeechToText();
-
-  // Text to speech
-  const { isSpeaking, speak, stop: stopTTS } = useTextToSpeech();
 
   // Chat
   const {
@@ -98,9 +68,7 @@ export function RoyProvider({ children }: RoyProviderProps) {
   const isProcessing = status === "submitted" || status === "streaming";
 
   // Compute UI state
-  const uiState: RoyUIState = isListening
-    ? "listening"
-    : isProcessing
+  const uiState: RoyUIState = isProcessing
     ? "processing"
     : messages.length > 0 && status === "ready"
     ? "responding"
@@ -108,13 +76,8 @@ export function RoyProvider({ children }: RoyProviderProps) {
 
   // Toggle Roy (keyboard shortcut)
   const toggle = useCallback(() => {
-    if (isListening) {
-      stopSTT();
-    } else {
-      setIsOpen(true);
-      startSTT();
-    }
-  }, [isListening, startSTT, stopSTT]);
+    setIsOpen((prev) => !prev);
+  }, []);
 
   // Keyboard shortcut
   useVoiceShortcut(toggle, true);
@@ -127,39 +90,6 @@ export function RoyProvider({ children }: RoyProviderProps) {
     },
     [sendChatMessage]
   );
-
-  // Auto-send transcript when speech ends
-  useEffect(() => {
-    if (!isListening && transcript && transcript.trim()) {
-      sendMessage(transcript);
-      clearSTT();
-    }
-  }, [isListening, transcript, sendMessage, clearSTT]);
-
-  // Auto-speak assistant responses
-  useEffect(() => {
-    if (status !== "ready" || messages.length === 0) return;
-
-    const lastMessage = messages[messages.length - 1];
-    if (
-      lastMessage.role === "assistant" &&
-      lastMessage.id !== lastSpokenMessageId.current
-    ) {
-      // Extract text from message
-      const textContent = lastMessage.parts
-        ?.filter((p) => p.type === "text")
-        .map((p) => (p as { type: "text"; text: string }).text)
-        .join(" ");
-
-      if (textContent) {
-        lastSpokenMessageId.current = lastMessage.id;
-        // Only speak if it's short-ish (avoid speaking long responses)
-        if (textContent.length < 500) {
-          speak(textContent);
-        }
-      }
-    }
-  }, [messages, status, speak]);
 
   // Track background tasks from tool calls
   useEffect(() => {
@@ -202,33 +132,22 @@ export function RoyProvider({ children }: RoyProviderProps) {
   // Dismiss Roy
   const dismiss = useCallback(() => {
     setIsOpen(false);
-    stopSTT();
-    stopTTS();
-  }, [stopSTT, stopTTS]);
+  }, []);
 
   // Clear conversation
   const clear = useCallback(() => {
     setMessages([]);
     setBackgroundTasks([]);
-    clearSTT();
-  }, [setMessages, clearSTT]);
+  }, [setMessages]);
 
   const value: RoyContextValue = {
     uiState,
     isOpen,
     setIsOpen,
-    isListening,
-    transcript,
-    interimTranscript,
-    startListening: startSTT,
-    stopListening: stopSTT,
-    isSpeaking,
-    speak,
-    stopSpeaking: stopTTS,
     messages,
     sendMessage,
     isProcessing,
-    error: chatError || (sttError ? new Error(sttError) : null),
+    error: chatError,
     backgroundTasks,
     hasActiveTasks,
     toggle,

@@ -40,3 +40,4 @@
 - [ ] Lisa: Create wireframes for all 3 approaches
 - [ ] Mike: Check feasibility of badge/calendar data for inference
 - [ ] Sarah: Set up user testing sessions for next week
+

@@ -186,3 +186,4 @@ function formatToolName(name: string): string {
     .replace(/^./, (str) => str.toUpperCase())
     .trim();
 }
+
