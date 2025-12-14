@@ -20,6 +20,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment variables
+
+Create a `.env.local` file in the project root with your Vercel AI Gateway key so the chat route can authenticate with the gateway:
+
+```bash
+touch .env.local
+```
+
+```env
+AI_GATEWAY_API_KEY=your-key-here
+```
+
+Restart the dev server after changing environment variables.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
