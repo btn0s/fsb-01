@@ -17,7 +17,8 @@ import { motion, AnimatePresence } from "motion/react";
  * - Above: Chat messages (grows upward)
  */
 export function RoyPrompt() {
-  const { isOpen, setIsOpen, isProcessing, sendMessage, messages } = useRoy();
+  const { isOpen, setIsOpen, isProcessing, sendMessage, messages, isAppOpen } =
+    useRoy();
 
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +63,13 @@ export function RoyPrompt() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, handleClose]);
 
+  // Close mini-chat when app opens
+  useEffect(() => {
+    if (isAppOpen && isOpen) {
+      setIsOpen(false);
+    }
+  }, [isAppOpen, isOpen, setIsOpen]);
+
   const handleSubmit = useCallback(() => {
     const text = inputValue.trim();
     if (text) {
@@ -83,7 +91,7 @@ export function RoyPrompt() {
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen && !isAppOpen && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -107,7 +115,7 @@ export function RoyPrompt() {
             {hasMessages && (
               <div
                 ref={scrollRef}
-                className="overflow-y-auto p-3 space-y-3 max-h-[50vh]"
+                className="overflow-y-auto p-3 space-y-3 max-h-[120px]"
               >
                 {messages.map((message) => {
                   const text = getMessageText(message);

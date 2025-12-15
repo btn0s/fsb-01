@@ -61,11 +61,9 @@ const WORKFLOW_CONFIG = {
 
 const APP_POSITION_KEY = "roy-app-position";
 const APP_SIZE_KEY = "roy-app-size";
-const APP_SIDEBAR_COLLAPSED_KEY = "roy-app-sidebar-collapsed";
 
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 300;
-const SIDEBAR_WIDTH = 200;
 
 type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 
@@ -98,7 +96,6 @@ function TaskItem({
     result?: WorkflowResult;
   };
 }) {
-  const [elapsed, setElapsed] = useState(0);
   const config = WORKFLOW_CONFIG[workflow.type];
   const Icon = config.icon;
 
@@ -106,9 +103,14 @@ function TaskItem({
   const isComplete = workflow.status === "completed";
   const isError = workflow.status === "error";
 
+  // Calculate elapsed time - only matters when running
+  const [elapsed, setElapsed] = useState(() =>
+    isRunning ? Math.floor((Date.now() - workflow.startedAt) / 1000) : 0
+  );
+
+  // Subscribe to time updates only when running
   useEffect(() => {
     if (!isRunning) return;
-    setElapsed(Math.floor((Date.now() - workflow.startedAt) / 1000));
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - workflow.startedAt) / 1000));
     }, 1000);
@@ -272,9 +274,24 @@ export function RoyApp() {
   } = useRoy();
 
   const [activeTab, setActiveTab] = useState<"chat" | "tasks">("chat");
-  const [position, setPosition] = useState({ x: 100, y: 100 });
-  const [size, setSize] = useState({ width: 800, height: 600 });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [position, setPosition] = useState(() => {
+    if (typeof window === "undefined") return { x: 100, y: 100 };
+    try {
+      const saved = localStorage.getItem(APP_POSITION_KEY);
+      return saved ? JSON.parse(saved) : { x: 100, y: 100 };
+    } catch {
+      return { x: 100, y: 100 };
+    }
+  });
+  const [size, setSize] = useState(() => {
+    if (typeof window === "undefined") return { width: 800, height: 600 };
+    try {
+      const saved = localStorage.getItem(APP_SIZE_KEY);
+      return saved ? JSON.parse(saved) : { width: 800, height: 600 };
+    } catch {
+      return { width: 800, height: 600 };
+    }
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] =
@@ -290,28 +307,6 @@ export function RoyApp() {
 
   const windowRef = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
-
-  // Load saved state
-  useEffect(() => {
-    try {
-      const savedPos = localStorage.getItem(APP_POSITION_KEY);
-      if (savedPos) setPosition(JSON.parse(savedPos));
-      const savedSize = localStorage.getItem(APP_SIZE_KEY);
-      if (savedSize) setSize(JSON.parse(savedSize));
-      const savedCollapsed = localStorage.getItem(APP_SIDEBAR_COLLAPSED_KEY);
-      if (savedCollapsed) setSidebarCollapsed(JSON.parse(savedCollapsed));
-    } catch {
-      // Ignore
-    }
-  }, []);
-
-  // Auto-collapse sidebar on small windows
-  useEffect(() => {
-    if (size.width < 500 && !sidebarCollapsed) {
-      setSidebarCollapsed(true);
-      localStorage.setItem(APP_SIDEBAR_COLLAPSED_KEY, JSON.stringify(true));
-    }
-  }, [size.width, sidebarCollapsed]);
 
   // Handle Cmd+K to focus input when app is open
   useEffect(() => {
@@ -567,259 +562,206 @@ export function RoyApp() {
           </div>
 
           {/* Content area */}
-          <SidebarProvider
-            open={!sidebarCollapsed}
-            onOpenChange={(open) => {
-              setSidebarCollapsed(!open);
-              localStorage.setItem(
-                APP_SIDEBAR_COLLAPSED_KEY,
-                JSON.stringify(!open)
-              );
-            }}
-            className="flex flex-1 min-h-0 h-full [&>div]:min-h-0"
-            style={{ minHeight: 0 }}
-          >
-            <div className="flex flex-1 min-h-0 h-full overflow-hidden">
-              {/* Sidebar */}
-              <motion.div
-                initial={false}
-                animate={{
-                  width: sidebarCollapsed ? 0 : SIDEBAR_WIDTH,
-                  opacity: sidebarCollapsed ? 0 : 1,
-                }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
-                className="overflow-hidden shrink-0"
-                style={{ maxWidth: SIDEBAR_WIDTH }}
-              >
-                <Sidebar
-                  collapsible="none"
-                  className="h-full border-r border-sidebar-border w-full overflow-hidden flex flex-col"
+          <SidebarProvider open={true} className="flex flex-1 min-h-0">
+            <Sidebar collapsible="none">
+              <SidebarHeader>
+                <div className="flex items-center gap-2 px-2 py-2 mb-2">
+                  <RoyLogo size="sm" />
+                  <span className="text-sm font-semibold text-sidebar-foreground">
+                    Roy
+                  </span>
+                </div>
+                <Button
+                  onClick={handleNewChat}
+                  variant="secondary"
+                  className="w-full justify-start"
                 >
-                  <SidebarHeader className="shrink-0">
-                    <div className="flex items-center gap-2 px-2 py-2 mb-2">
-                      <RoyLogo size="sm" />
-                      <span
-                        className={cn(
-                          "text-sm font-semibold text-sidebar-foreground",
-                          size.width < 250 && "hidden"
-                        )}
-                      >
-                        Roy
-                      </span>
-                    </div>
-                    <Button
-                      onClick={handleNewChat}
-                      variant="secondary"
-                      className={cn(
-                        "w-full",
-                        size.width < 350 ? "justify-center" : "justify-start"
-                      )}
-                    >
-                      <Plus />
-                      {size.width >= 350 && <span>New Chat</span>}
-                    </Button>
-                  </SidebarHeader>
+                  <Plus />
+                  <span>New Chat</span>
+                </Button>
+              </SidebarHeader>
 
-                  <SidebarContent className="overflow-x-hidden">
-                    <SidebarGroup>
-                      {size.width >= 250 && (
-                        <SidebarGroupLabel>Conversations</SidebarGroupLabel>
-                      )}
-                      <SidebarMenu>
-                        {threads.map((thread) => {
-                          const isActive = thread.id === activeThreadId;
-                          const hasRunning = thread.workflows.some(
-                            (w) => w.status === "running"
-                          );
-                          return (
-                            <SidebarMenuItem key={thread.id}>
-                              <SidebarMenuButton
-                                isActive={isActive}
-                                onClick={() => handleSelectThread(thread.id)}
-                              >
-                                <MessageSquare className="size-4" />
-                                {size.width >= 250 && (
-                                  <span className="flex-1 truncate">
-                                    {thread.title || "New conversation"}
-                                  </span>
-                                )}
-                                {hasRunning && (
-                                  <Loader2 className="size-3 animate-spin text-primary" />
-                                )}
-                              </SidebarMenuButton>
-                              <SidebarMenuAction
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteThread(thread.id);
-                                }}
-                                showOnHover
-                              >
-                                <Trash2 className="size-3" />
-                              </SidebarMenuAction>
-                            </SidebarMenuItem>
-                          );
-                        })}
-                        {threads.length === 0 && (
-                          <div className="px-3 py-4 text-xs text-sidebar-foreground/70 text-center">
-                            No conversations yet
-                          </div>
-                        )}
-                      </SidebarMenu>
-                    </SidebarGroup>
-                  </SidebarContent>
-                </Sidebar>
-              </motion.div>
-              {/* Main content */}
-              <SidebarInset className="flex flex-col min-w-0 min-h-0">
-                {activeThreadId ? (
-                  <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-background">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <h2 className="text-sm font-semibold text-foreground truncate">
-                          {activeThread?.title || "New conversation"}
-                        </h2>
-                        {threadWorkflows.some(
-                          (w) => w.status === "running"
-                        ) && (
-                          <Loader2 className="size-4 animate-spin text-primary shrink-0" />
-                        )}
-                      </div>
-                      <Tabs
-                        value={activeTab}
-                        onValueChange={(v) =>
-                          setActiveTab(v as "chat" | "tasks")
-                        }
-                      >
-                        <TabsList>
-                          <TabsTrigger value="chat">
-                            <MessageSquare />
-                            <span className={cn(size.width < 400 && "hidden")}>
-                              Chat
+              <SidebarContent>
+                <SidebarGroup>
+                  <SidebarGroupLabel>Conversations</SidebarGroupLabel>
+                  <SidebarMenu>
+                    {threads.map((thread) => {
+                      const isActive = thread.id === activeThreadId;
+                      const hasRunning = thread.workflows.some(
+                        (w) => w.status === "running"
+                      );
+                      return (
+                        <SidebarMenuItem key={thread.id}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={() => handleSelectThread(thread.id)}
+                          >
+                            <MessageSquare className="size-4" />
+                            <span className="flex-1 truncate">
+                              {thread.title || "New conversation"}
                             </span>
-                          </TabsTrigger>
-                          <TabsTrigger value="tasks">
-                            <ListTodo />
-                            <span className={cn(size.width < 400 && "hidden")}>
-                              Tasks
-                            </span>
-                            {threadWorkflows.length > 0 && (
-                              <Badge variant="secondary" className="ml-1">
-                                {threadWorkflows.length}
-                              </Badge>
+                            {hasRunning && (
+                              <Loader2 className="size-3 animate-spin text-primary" />
                             )}
-                          </TabsTrigger>
-                        </TabsList>
-                      </Tabs>
-                    </div>
-
-                    {/* Content area */}
-                    {activeTab === "chat" ? (
-                      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                        {/* Chat messages */}
-                        <div className="flex-1 min-h-0">
-                          <Conversation className="flex-1 min-h-0 h-full">
-                            <ConversationContent>
-                              {hasMessages ? (
-                                messages.map((message) => {
-                                  const text = getMessageText(message);
-                                  if (!text) return null;
-
-                                  return (
-                                    <Message
-                                      key={message.id}
-                                      from={message.role}
-                                    >
-                                      <MessageContent>
-                                        <MessageResponse>
-                                          {text}
-                                        </MessageResponse>
-                                      </MessageContent>
-                                    </Message>
-                                  );
-                                })
-                              ) : (
-                                <ConversationEmptyState
-                                  title="Start a conversation with Roy"
-                                  icon={
-                                    <RoyLogo size="lg" className="opacity-50" />
-                                  }
-                                />
-                              )}
-
-                              {isProcessing && (
-                                <Message from="assistant">
-                                  <MessageContent>
-                                    <div className="flex items-center gap-2">
-                                      <Loader size={14} />
-                                      <span className="text-muted-foreground">
-                                        thinking...
-                                      </span>
-                                    </div>
-                                  </MessageContent>
-                                </Message>
-                              )}
-                            </ConversationContent>
-                            <ConversationScrollButton />
-                          </Conversation>
-                        </div>
-
-                        {/* Chat input */}
-                        <div className="p-3 shrink-0 bg-background">
-                          <PromptInput onSubmit={handleSubmit}>
-                            <PromptInputTextarea placeholder="Message Roy..." />
-                            <PromptInputFooter className="justify-end">
-                              <PromptInputSubmit
-                                status={isProcessing ? "submitted" : "ready"}
-                                size="sm"
-                                className="gap-2"
-                              >
-                                {isProcessing ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <SendIcon className="size-4" />
-                                    <span>Send</span>
-                                  </>
-                                )}
-                              </PromptInputSubmit>
-                            </PromptInputFooter>
-                          </PromptInput>
-                        </div>
+                          </SidebarMenuButton>
+                          <SidebarMenuAction
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteThread(thread.id);
+                            }}
+                            showOnHover
+                          >
+                            <Trash2 className="size-3" />
+                          </SidebarMenuAction>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                    {threads.length === 0 && (
+                      <div className="px-3 py-4 text-xs text-sidebar-foreground/70 text-center">
+                        No conversations yet
                       </div>
-                    ) : (
-                      <ScrollArea className="flex-1 p-4">
-                        {threadWorkflows.length > 0 ? (
-                          <div className="space-y-2">
-                            {threadWorkflows.map((wf) => (
-                              <TaskItem key={wf.id} workflow={wf} />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                            <ListTodo className="size-8 text-muted-foreground mb-3" />
-                            <p className="text-sm text-muted-foreground">
-                              No tasks in this conversation
-                            </p>
-                          </div>
-                        )}
-                      </ScrollArea>
                     )}
+                  </SidebarMenu>
+                </SidebarGroup>
+              </SidebarContent>
+            </Sidebar>
+            {/* Main content */}
+            <SidebarInset className="flex flex-col min-w-0 min-h-0">
+              {activeThreadId ? (
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-background">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <h2 className="text-sm font-semibold text-foreground truncate">
+                        {activeThread?.title || "New conversation"}
+                      </h2>
+                      {threadWorkflows.some((w) => w.status === "running") && (
+                        <Loader2 className="size-4 animate-spin text-primary shrink-0" />
+                      )}
+                    </div>
+                    <Tabs
+                      value={activeTab}
+                      onValueChange={(v) => setActiveTab(v as "chat" | "tasks")}
+                    >
+                      <TabsList>
+                        <TabsTrigger value="chat">
+                          <MessageSquare />
+                          <span>Chat</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="tasks">
+                          <ListTodo />
+                          <span>Tasks</span>
+                          {threadWorkflows.length > 0 && (
+                            <Badge variant="secondary" className="ml-1">
+                              {threadWorkflows.length}
+                            </Badge>
+                          )}
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
                   </div>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                    <RoyLogo size="lg" className="mb-4 opacity-50" />
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Select a conversation or start a new one
-                    </p>
-                    <Button onClick={handleNewChat}>
-                      <Plus />
-                      <span>New Chat</span>
-                    </Button>
-                  </div>
-                )}
-              </SidebarInset>
-            </div>
+
+                  {/* Content area */}
+                  {activeTab === "chat" ? (
+                    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                      {/* Chat messages */}
+                      <div className="flex-1 min-h-0">
+                        <Conversation className="flex-1 min-h-0 h-full">
+                          <ConversationContent>
+                            {hasMessages ? (
+                              messages.map((message) => {
+                                const text = getMessageText(message);
+                                if (!text) return null;
+
+                                return (
+                                  <Message key={message.id} from={message.role}>
+                                    <MessageContent>
+                                      <MessageResponse>{text}</MessageResponse>
+                                    </MessageContent>
+                                  </Message>
+                                );
+                              })
+                            ) : (
+                              <ConversationEmptyState
+                                title="Start a conversation with Roy"
+                                icon={
+                                  <RoyLogo size="lg" className="opacity-50" />
+                                }
+                              />
+                            )}
+
+                            {isProcessing && (
+                              <Message from="assistant">
+                                <MessageContent>
+                                  <div className="flex items-center gap-2">
+                                    <Loader size={14} />
+                                    <span className="text-muted-foreground">
+                                      thinking...
+                                    </span>
+                                  </div>
+                                </MessageContent>
+                              </Message>
+                            )}
+                          </ConversationContent>
+                          <ConversationScrollButton />
+                        </Conversation>
+                      </div>
+
+                      {/* Chat input */}
+                      <div className="p-3 shrink-0 bg-background">
+                        <PromptInput onSubmit={handleSubmit}>
+                          <PromptInputTextarea placeholder="Message Roy..." />
+                          <PromptInputFooter className="justify-end">
+                            <PromptInputSubmit
+                              status={isProcessing ? "submitted" : "ready"}
+                              size="sm"
+                              className="gap-2"
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <SendIcon className="size-4" />
+                                  <span>Send</span>
+                                </>
+                              )}
+                            </PromptInputSubmit>
+                          </PromptInputFooter>
+                        </PromptInput>
+                      </div>
+                    </div>
+                  ) : (
+                    <ScrollArea className="flex-1 p-4">
+                      {threadWorkflows.length > 0 ? (
+                        <div className="space-y-2">
+                          {threadWorkflows.map((wf) => (
+                            <TaskItem key={wf.id} workflow={wf} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                          <ListTodo className="size-8 text-muted-foreground mb-3" />
+                          <p className="text-sm text-muted-foreground">
+                            No tasks in this conversation
+                          </p>
+                        </div>
+                      )}
+                    </ScrollArea>
+                  )}
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                  <RoyLogo size="lg" className="mb-4 opacity-50" />
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Select a conversation or start a new one
+                  </p>
+                  <Button onClick={handleNewChat}>
+                    <Plus />
+                    <span>New Chat</span>
+                  </Button>
+                </div>
+              )}
+            </SidebarInset>
           </SidebarProvider>
         </motion.div>
       )}
