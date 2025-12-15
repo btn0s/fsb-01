@@ -1,20 +1,20 @@
-import {
-  convertToModelMessages,
-  createUIMessageStreamResponse,
-  UIMessage,
-} from "ai";
-import { start } from "workflow/api";
-import { royChatWorkflow } from "@/workflows/chat";
+import { streamText } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { ROY_SYSTEM_PROMPT } from "@/lib/roy/system-prompt";
+import { chatTools } from "@/lib/roy/chat-tools";
 
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
-  const modelMessages = convertToModelMessages(messages);
+  const { messages } = await req.json();
 
-  const run = await start(royChatWorkflow, [modelMessages]);
-
-  return createUIMessageStreamResponse({
-    stream: run.readable,
+  const result = streamText({
+    model: openai("gpt-4o"),
+    system: ROY_SYSTEM_PROMPT,
+    messages,
+    tools: chatTools,
+    maxSteps: 10,
   });
+
+  return result.toDataStreamResponse();
 }
