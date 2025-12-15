@@ -1,6 +1,5 @@
 import { octokit, getRepoConfig } from "@/lib/roy/integrations/github";
 import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
 
 const ENGINEERING_SYSTEM_PROMPT = `You are an expert full-stack engineer. Generate clean, production-ready code that follows best practices.
 
@@ -82,7 +81,7 @@ export async function engineeringWorkflow(input: {
 }) {
   "use workflow";
   const codeGen = await generateText({
-    model: openai("gpt-4o"),
+    model: "openai/gpt-4o",
     system: ENGINEERING_SYSTEM_PROMPT,
     prompt: `Task: ${input.task}
 ${input.targetFiles ? `Target files: ${input.targetFiles.join(", ")}` : ""}
