@@ -14,11 +14,30 @@ import { useVoiceShortcut } from "@/hooks/use-voice-shortcut";
 
 type RoyUIState = "idle" | "processing" | "responding";
 
+interface DesignResult {
+  type: "design";
+  previewUrl: string;
+  chatId: string;
+  projectId: string;
+  files: string[];
+}
+
+interface EngineeringResult {
+  type: "engineering";
+  prUrl: string;
+  prNumber: number;
+  branch: string;
+  files: string[];
+}
+
+type WorkflowResult = DesignResult | EngineeringResult;
+
 interface WorkflowRun {
   id: string;
   type: "design" | "engineering";
   status: "running" | "completed" | "error";
   startedAt: number;
+  result?: WorkflowResult;
 }
 
 interface ChatThread {
@@ -260,7 +279,8 @@ export function RoyProvider({ children }: RoyProviderProps) {
     setIsAppOpen((prev) => !prev);
   }, []);
 
-  useVoiceShortcut(startNewChat, true);
+  // Only enable Cmd+K shortcut when app is closed (to summon dock widget)
+  useVoiceShortcut(startNewChat, !isAppOpen);
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -361,6 +381,7 @@ export function RoyProvider({ children }: RoyProviderProps) {
                           ...w,
                           status:
                             data.status === "completed" ? "completed" : "error",
+                          result: data.result as WorkflowResult | undefined,
                         }
                       : w
                   ),
