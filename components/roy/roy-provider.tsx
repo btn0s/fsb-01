@@ -63,6 +63,7 @@ interface RoyContextValue {
 
 const RoyContext = createContext<RoyContextValue | null>(null);
 const THREADS_STORAGE_KEY = "roy-threads";
+const MESSAGES_STORAGE_PREFIX = "roy-messages-";
 
 export function useRoy() {
   const context = useContext(RoyContext);
@@ -160,6 +161,10 @@ export function RoyProvider({ children }: RoyProviderProps) {
       if (stored) {
         const parsed = JSON.parse(stored) as ChatThread[];
         setThreads(parsed);
+        // If there are threads, set the most recent as active
+        if (parsed.length > 0) {
+          setActiveThreadId(parsed[0].id);
+        }
       }
     } catch {
       // Ignore
@@ -173,6 +178,42 @@ export function RoyProvider({ children }: RoyProviderProps) {
     }
   }, [threads]);
 
+  // Load messages when switching threads
+  useEffect(() => {
+    if (!activeThreadId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(
+        `${MESSAGES_STORAGE_PREFIX}${activeThreadId}`
+      );
+      if (stored) {
+        const parsed = JSON.parse(stored) as UIMessage[];
+        setMessages(parsed);
+      } else {
+        setMessages([]);
+      }
+    } catch {
+      setMessages([]);
+    }
+  }, [activeThreadId, setMessages]);
+
+  // Save messages to localStorage when they change
+  const prevMessagesRef = useRef<string>("");
+  useEffect(() => {
+    if (!activeThreadId || messages.length === 0) return;
+    const serialized = JSON.stringify(messages);
+    // Only save if messages actually changed
+    if (serialized !== prevMessagesRef.current) {
+      prevMessagesRef.current = serialized;
+      localStorage.setItem(
+        `${MESSAGES_STORAGE_PREFIX}${activeThreadId}`,
+        serialized
+      );
+    }
+  }, [activeThreadId, messages]);
+
   // Create a new thread
   const createThread = useCallback(() => {
     const newThread: ChatThread = {
@@ -183,6 +224,7 @@ export function RoyProvider({ children }: RoyProviderProps) {
     setThreads((prev) => [newThread, ...prev]);
     setActiveThreadId(newThread.id);
     setMessages([]);
+    prevMessagesRef.current = ""; // Reset so we don't carry over old messages
     return newThread.id;
   }, [setMessages]);
 
@@ -194,8 +236,8 @@ export function RoyProvider({ children }: RoyProviderProps) {
         setActiveThreadId(null);
         setMessages([]);
       }
-      // Clean up localStorage for this chat
-      localStorage.removeItem(`ai-chat-${id}`);
+      // Clean up localStorage for this thread's messages
+      localStorage.removeItem(`${MESSAGES_STORAGE_PREFIX}${id}`);
     },
     [activeThreadId, setMessages]
   );
